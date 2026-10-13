@@ -12,6 +12,8 @@ library("car") ## General Statistical Package
 library("glmnet") ## Regularized GLM package
 library("pheatmap")
 library("regclass") ## VIF on a Dataframe without specified target
+library("ordinal") ## to run frequentest ordinal regression
+library("brms") ## Bayesian models
 
 ##### Defining visual colors:
 colors = c(
@@ -148,6 +150,13 @@ vif(fit)
 
 ##### Modeling ----------------------------------------------------  #####
 
+## Removing the Unwanted Predictors: 
+ordinal_red <- kidney %>%
+  mutate(across(all_of(to_ordinal), ranking)) %>%
+  mutate(across(where(is.character) & !any_of(c("class","stage")), as.numeric)) %>%
+  select(-c(affected, grf, bp.limit, hemo, class))
+
+
 ## Running regression with Kidney Disease as target
 ckd <- ordinal %>%
       select(-c(stage)) %>%
@@ -175,9 +184,79 @@ cv <- cv.glmnet(X, target, family = "binomial",
 coef(cv)
 
 
+### Ordinal Regression
+ordinal_red$stage <- factor(ordinal_red$stage, ordered = TRUE)
+
+model <- clm(stage~., data = ordinal_red,
+             link = "logit",
+             control = clm.control(
+               method = "optim", # This should use the BFGS algorithm for convergence
+               maxIter = 5000,
+               trace = 0
+             ))
+summary(model)
+
+
+### Bayesian Ordinal Logistic Regression
+# Define the Horseshoe prior for regression coefficients (class = "b")
+# df = 1 specifies the Student-t degrees of freedom for local shrinkage
+hs_prior <- set_prior(horseshoe(df = 1), class = "b")
+
+# Fit the ordinal logistic model (cumulative logit family)
+fit_horseshoe <- brm(
+  formula = stage ~ .,
+  data = ordinal_red,
+  family = cumulative(link = "logit"),
+  prior = hs_prior,
+  chains = 4,
+  cores = 4,             # Parallel processing across CPU cores
+  iter = 2000,
+  warmup = 1000,
+  control = list(adapt_delta = 0.99) # Prevents divergent transitions common with Horseshoe priors
+)
+
+# Model Summary and Visualization
+summary(fit_horseshoe)
+plot(fit_horseshoe)
 
 
 
+### Running Cumulative Ordinal Models
+df_bayes <- ordinal_red %>%
+  select(bp..Diastolic., bu, sod, pcv, age, stage) %>%
+  mutate(
+    sod_group_1 = as.numeric(sod == 1),
+    sod_group_3 = as.numeric(sod == 3),
+    sod_group_4 = as.numeric(sod == 4),
+  ) %>%
+  select(-sod)
+
+priors <- c(
+  # Flat Prior defined by Alistar
+  set_prior("normal(0, 50)", class = "b"),
+  
+  # Custom Priors based on Literature
+  set_prior("normal(0.37, 0.2)", class = "b", coef = "sod_group_1"),
+  set_prior("normal(0.16, 0.2)", class = "b", coef = "sod_group_3"),
+  set_prior("normal(0.20, 0.2)", class = "b", coef = "sod_group_4"),
+  set_prior("normal(0, 0.5)", class = "b", coef = "age")
+)
+
+# fitting the model
+cumulative_model <- brm(
+  formula = stage ~ .,
+  data = df_bayes,
+  family = cumulative(link = "logit"),
+  prior = priors,
+  chains = 4, 
+  iter = 2000, 
+  warmup = 1000,
+  cores = 4,
+  seed = 123
+)
+
+
+summary(cumulative_model)
 
 
 
