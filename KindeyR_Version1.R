@@ -239,6 +239,7 @@ priors <- c(
   set_prior("normal(0.37, 0.2)", class = "b", coef = "sod_group_1"),
   set_prior("normal(0.16, 0.2)", class = "b", coef = "sod_group_3"),
   set_prior("normal(0.20, 0.2)", class = "b", coef = "sod_group_4"),
+  set_prior("normal(8, 2)", class = "b", coef = "pcv"),
   set_prior("normal(0, 0.5)", class = "b", coef = "age")
 )
 
