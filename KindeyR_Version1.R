@@ -63,9 +63,6 @@ ordinal <- kidney %>%
   mutate(across(where(is.character) & !any_of(c("class","stage")), as.numeric)) %>%
   select(-c(affected))
 
-names(ordinal)
-View(ordinal)
-
 
 
 ##### EDA --------------------------------------------------------  #####
@@ -219,28 +216,65 @@ fit_horseshoe <- brm(
 summary(fit_horseshoe)
 plot(fit_horseshoe)
 
-
-
+unique(ordinal_red$sod)
 ### Running Cumulative Ordinal Models
 df_bayes <- ordinal_red %>%
   select(bp..Diastolic., bu, sod, pcv, age, stage) %>%
   mutate(
-    sod_group_1 = as.numeric(sod == 1),
-    sod_group_3 = as.numeric(sod == 3),
-    sod_group_4 = as.numeric(sod == 4),
+    
+    stage = ordered(stage), 
+
+    sod_factor = factor(case_when(
+      sod <= 3 ~ "1",
+      sod == 4 ~ "2",
+      sod == 5 ~ "3",
+      sod >= 6 ~ "4"),
+      levels = c("2", "1", "3", "4") # To set "2" as the baseline
+      ),
+    ## Selecting BU measures
+    ## Daka BU is 2.14 times the western equivalence, and common literature
+    ## uses Serum Urea instead of blood urea in mmol/L instead of mg/L
+    ## the conversion is Serum Urea * (2.8 * 2.14) = Blood Urea
+    ## Literature suggests T1 <10.5 SU == 62.916
+    ##                     T2 < 15.1 SU == 90.4792
+    ##                     T3 > 15.1 SU == 90.4792
+    bu_factor = factor(case_when(
+      bu == 0 ~ "0_baseline",
+      bu == 1 ~ "1_mild",
+      bu == 2 ~ "2_mod",
+      bu == 3 ~ "3_mod",
+      bu == 4 ~ "4_sev",
+      bu == 5 ~ "5_sev",
+      bu == 6 ~ "6_sev",
+      bu == 7 ~ "7_extreme"
+    ))
   ) %>%
-  select(-sod)
+  select(-sod, - bu)
+
 
 priors <- c(
   # Flat Prior defined by Alistar
   set_prior("normal(0, 50)", class = "b"),
   
   # Custom Priors based on Literature
-  set_prior("normal(0.37, 0.2)", class = "b", coef = "sod_group_1"),
-  set_prior("normal(0.16, 0.2)", class = "b", coef = "sod_group_3"),
-  set_prior("normal(0.20, 0.2)", class = "b", coef = "sod_group_4"),
+  # Sod
+  set_prior("normal(0.37, 0.2)", class = "b", coef = "sod_factor1"),
+  set_prior("normal(0.16, 0.2)", class = "b", coef = "sod_factor3"),
+  set_prior("normal(0.20, 0.2)", class = "b", coef = "sod_factor4"),
+  
+  # Bu
+  set_prior("normal(0.25, 0.20)", class = "b", coef = "bu_factor1_mild"),
+  set_prior("normal(0.55, 0.20)", class = "b", coef = "bu_factor2_mod"),
+  set_prior("normal(0.55, 0.20)", class = "b", coef = "bu_factor3_mod"),
+  set_prior("normal(0.55, 0.20)", class = "b", coef = "bu_factor4_sev"),
+  set_prior("normal(0.55, 0.20)", class = "b", coef = "bu_factor5_sev"),
+  set_prior("normal(0.55, 0.20)", class = "b", coef = "bu_factor6_sev"),
+  set_prior("normal(0.55, 0.20)", class = "b", coef = "bu_factor7_extreme"),
+  
+  # pcv and age
   set_prior("normal(8, 2)", class = "b", coef = "pcv"),
-  set_prior("normal(0, 0.5)", class = "b", coef = "age")
+  set_prior("normal(0, 0.5)", class = "b", coef = "age"),
+  set_prior("normal(0, 0.5)", class = "b", coef = "bp..Diastolic.")
 )
 
 # fitting the model
@@ -258,7 +292,6 @@ cumulative_model <- brm(
 
 
 summary(cumulative_model)
-
 
 
 
